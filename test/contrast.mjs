@@ -16,17 +16,70 @@ import { dirname, join } from 'node:path'
 const root = dirname(dirname(fileURLToPath(import.meta.url)))
 const css = readFileSync(join(root, 'src/styles.css'), 'utf8')
 
-// The token blocks contain no nested braces, so the first `}` closes them.
-const blocks = [...css.matchAll(/:root\s*\{([^}]*)\}/g)].map((m) => m[1])
-if (blocks.length !== 2) {
-  console.error(`expected a light and a dark :root block in styles.css, found ${blocks.length}`)
-  process.exit(1)
+/**
+ * Every rule block whose selector mentions :root, with the at-rule it sits in.
+ *
+ * Matching `:root {` with a regex and calling the second hit "dark" is how this
+ * used to work, and it could not see a qualified selector such as
+ * `:root[data-theme="dark"]` at all - a whole theme could sit in the stylesheet
+ * unaudited while the run printed ALL PASS. So the blocks are found properly and
+ * anything unaccounted for is an error rather than a silent skip.
+ */
+function rootBlocks(source) {
+  const css = source.replace(/\/\*[\s\S]*?\*\//g, '') // comments can contain braces
+  const out = []
+  const atRules = []
+  let prelude = ''
+  let i = 0
+  while (i < css.length) {
+    const ch = css[i]
+    if (ch === ';') { prelude = ''; i++; continue }       // @import and friends
+    if (ch === '}') { atRules.pop(); prelude = ''; i++; continue }
+    if (ch !== '{') { prelude += ch; i++; continue }
+
+    const selector = prelude.trim()
+    prelude = ''
+    if (selector.startsWith('@')) { atRules.push(selector); i++; continue }
+
+    let depth = 1
+    let j = i + 1
+    while (j < css.length && depth > 0) {
+      if (css[j] === '{') depth++
+      else if (css[j] === '}') depth--
+      j++
+    }
+    if (selector.includes(':root')) {
+      out.push({ selector, at: atRules.join(' '), body: css.slice(i + 1, j - 1) })
+    }
+    i = j
+  }
+  return out
 }
+
 const declarations = (block) =>
   Object.fromEntries([...block.matchAll(/(--[a-z0-9-]+)\s*:\s*([^;]+);/g)].map(([, k, v]) => [k, v.trim()]))
 
-const LIGHT = declarations(blocks[0])
-const DARK = { ...LIGHT, ...declarations(blocks[1]) } // dark overrides, it does not replace
+const found = rootBlocks(css)
+const isLight = (b) => b.selector === ':root' && b.at === ''
+const isDark = (b) => /prefers-color-scheme\s*:\s*dark/.test(b.at)
+
+const lightBlocks = found.filter(isLight)
+const darkBlocks = found.filter(isDark)
+const orphans = found.filter((b) => !isLight(b) && !isDark(b))
+
+if (orphans.length) {
+  console.error('styles.css has theme blocks this audit does not know how to check:')
+  for (const o of orphans) console.error(`  ${o.at ? o.at + ' ' : ''}${o.selector}`)
+  console.error('Add them to the audit or remove them - an unchecked theme is an unreadable one.')
+  process.exit(1)
+}
+if (lightBlocks.length !== 1 || darkBlocks.length !== 1) {
+  console.error(`expected one light and one dark :root block, found ${lightBlocks.length} and ${darkBlocks.length}`)
+  process.exit(1)
+}
+
+const LIGHT = declarations(lightBlocks[0].body)
+const DARK = { ...LIGHT, ...declarations(darkBlocks[0].body) } // dark overrides, it does not replace
 
 /* --- WCAG 2.1 relative luminance ------------------------------------------ */
 

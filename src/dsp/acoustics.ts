@@ -191,19 +191,32 @@ export function bestFit(d: Decay): { fit: DecayFit; label: 'T30' | 'T20' | 'EDT'
   return null
 }
 
-/** Early-to-late energy ratio in dB. C50 is speech, C80 is music. */
-export function clarity(ir: Float32Array, sampleRate: number, splitMs: number): number {
-  const split = Math.round((splitMs / 1000) * sampleRate)
-  const early = energy(ir, 0, Math.min(split, ir.length))
-  const late = energy(ir, Math.min(split, ir.length), ir.length)
+/**
+ * Early-to-late energy ratio in dB. C50 is speech, C80 is music.
+ *
+ * `directIndex` is where the direct sound sits inside `ir`. The split is
+ * measured from there, not from the start of the array: analyse() deliberately
+ * keeps a couple of milliseconds ahead of the peak so the impulse's leading
+ * edge is not clipped off, and without adding that lead back every C50 the
+ * instrument reports is really a 48 ms C50. It reads about a quarter of a
+ * decibel low, which is enough to move a room across the 4 dB threshold that
+ * decides whether it is described as easy to follow.
+ */
+export function clarity(ir: Float32Array, sampleRate: number, splitMs: number, directIndex = 0): number {
+  const split = Math.min(ir.length, directIndex + Math.round((splitMs / 1000) * sampleRate))
+  const early = energy(ir, 0, split)
+  const late = energy(ir, split, ir.length)
   if (late <= 0 || early <= 0) return NaN
   return 10 * Math.log10(early / late)
 }
 
-/** Deutlichkeit: the share of energy arriving in the first 50 ms, as a percentage. */
-export function definition(ir: Float32Array, sampleRate: number): number {
-  const split = Math.round(0.05 * sampleRate)
-  const early = energy(ir, 0, Math.min(split, ir.length))
+/**
+ * Deutlichkeit: the share of energy arriving in the first 50 ms after the
+ * direct sound, as a percentage. `directIndex` as in clarity().
+ */
+export function definition(ir: Float32Array, sampleRate: number, directIndex = 0): number {
+  const split = Math.min(ir.length, directIndex + Math.round(0.05 * sampleRate))
+  const early = energy(ir, 0, split)
   const all = energy(ir, 0, ir.length)
   if (all <= 0) return NaN
   return (early / all) * 100
@@ -301,7 +314,20 @@ export function earlyReflections(
     .sort((a, b) => a.index - b.index)
     .slice(0, max)
     .map(({ index }) => {
-      const time = index / sampleRate
-      return { time, distance: (SPEED_OF_SOUND * time) / 2, levelDb: db(index) }
+      // The smoothing above is a centred running max, so a real arrival becomes
+      // a plateau `smooth` samples wide in which every sample looks like a peak.
+      // Which one the scan settles on depends on which way the decay underneath
+      // is leaning, because prominence is measured against that trend and the
+      // tie-break walks to whichever end of the plateau reads highest. That is
+      // half a window of error in one direction for a whole measurement - 2.9 cm
+      // at 48 kHz, which is the entire accuracy this function claims to have.
+      //
+      // The envelope itself has no plateau, so settle the index on that.
+      let best = index
+      for (let j = Math.max(0, index - half); j <= Math.min(end - 1, index + half); j++) {
+        if (env[j] > env[best]) best = j
+      }
+      const time = best / sampleRate
+      return { time, distance: (SPEED_OF_SOUND * time) / 2, levelDb: db(best) }
     })
 }

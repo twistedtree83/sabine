@@ -108,14 +108,45 @@ for (const x of r.reflections) {
   console.log(`   ${x.distance.toFixed(2)} m  at ${(x.time * 1000).toFixed(1)} ms, ${x.levelDb.toFixed(1)} dB   ` +
     `${err < 0.25 ? `= ${near.what}` : `<- no surface within 0.25 m (nearest ${near.what} at ${near.metres.toFixed(2)})`}`)
 }
-const hits = r.reflections.filter((x) => truth.some((t) => Math.abs(t.metres - x.distance) < 0.25)).length
+// The README quotes 3 cm. A 0.25 m gate is eight times looser than the claim,
+// and wide enough to hide a systematic bias larger than the whole quoted
+// accuracy - which is exactly what it was hiding.
+const ACCURACY_M = 0.03
+
+// An arrival is matched to a surface generously, so that a double bounce is not
+// scored as a miss; the accuracy assertion below is what is actually tight.
+const matched = r.reflections
+  .map((x) => {
+    const near = truth.reduce((a, b) => (Math.abs(b.metres - x.distance) < Math.abs(a.metres - x.distance) ? b : a))
+    return { x, near, err: Math.abs(near.metres - x.distance) }
+  })
+  .filter((m) => m.err < 0.25)
+
 const rtErr = Math.abs(r.broadband.rt60 - rtSabine) / rtSabine * 100
 
-console.log(`\n${hits} of ${r.reflections.length} reported arrivals sit on a first-order surface`)
+console.log(`\n${matched.length} of ${r.reflections.length} reported arrivals sit on a first-order surface`)
 console.log(`RT60 measured ${r.broadband.rt60.toFixed(2)} s against Sabine's ${rtSabine.toFixed(2)} s  (${rtErr.toFixed(1)}%)`)
 console.log('Arrivals that match no single surface are usually real double bounces:')
 console.log('  a floor-then-ceiling path in this room is 2 x 2.9 = 5.8 m, which reads as 2.90 m.')
 
-const ok = hits >= 3 && rtErr < 8
-console.log(`\n${ok ? 'PASS' : 'FAIL'}  (>= 3 surfaces found, RT60 within 8% of Sabine)`)
+// A bias shows up as every error sharing a sign, which a per-arrival tolerance
+// alone would not catch, so the mean signed error is asserted separately.
+let ok = matched.length >= 3 && rtErr < 8
+if (!ok) console.log(`\nFAIL  wanted >= 3 surfaces (got ${matched.length}) and RT60 within 8% (got ${rtErr.toFixed(1)}%)`)
+
+console.log(`\naccuracy of each matched arrival (wants within ${(ACCURACY_M * 100).toFixed(0)} cm):`)
+let signedSum = 0
+for (const m of matched) {
+  const signed = m.x.distance - m.near.metres
+  signedSum += signed
+  const good = Math.abs(signed) <= ACCURACY_M
+  if (!good) ok = false
+  console.log(`  ${good ? 'PASS' : 'FAIL'}  ${m.near.what.padEnd(16)} ${(signed * 100 >= 0 ? '+' : '')}${(signed * 100).toFixed(1)} cm`)
+}
+const bias = matched.length ? (signedSum / matched.length) * 100 : 0
+const biasOk = Math.abs(bias) <= ACCURACY_M * 100 * 0.5
+if (!biasOk) ok = false
+console.log(`  ${biasOk ? 'PASS' : 'FAIL'}  mean signed error ${bias >= 0 ? '+' : ''}${bias.toFixed(1)} cm  (wants within ${(ACCURACY_M * 100 * 0.5).toFixed(1)} cm of zero)`)
+
+console.log(`\n${ok ? 'PASS' : 'FAIL'}`)
 process.exit(ok ? 0 : 1)
