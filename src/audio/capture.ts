@@ -53,6 +53,12 @@ export interface MicSettings {
   autoGainControl: boolean
   /** True when the browser honoured all three requests. */
   clean: boolean
+  /**
+   * False when the browser told us nothing about its own processing. Honoured
+   * and unreported are indistinguishable through getSettings(), so the two
+   * cases have to be said differently rather than guessed at.
+   */
+  reported: boolean
   label: string
 }
 
@@ -111,14 +117,26 @@ export async function requestMicrophone(): Promise<MediaStream> {
 export function readMicSettings(stream: MediaStream): MicSettings {
   const track = stream.getAudioTracks()[0]
   const s = track?.getSettings() ?? {}
-  const echoCancellation = s.echoCancellation !== false
-  const noiseSuppression = s.noiseSuppression !== false
-  const autoGainControl = s.autoGainControl !== false
+
+  // A browser is allowed to report none of these, and `undefined !== false` is
+  // true — so reading them that way flagged every such browser as having kept
+  // its processing on, on every measurement, and told the user a specific thing
+  // that was not known to be so. Only an explicit `true` means on.
+  const reported =
+    s.echoCancellation !== undefined ||
+    s.noiseSuppression !== undefined ||
+    s.autoGainControl !== undefined
+  const echoCancellation = s.echoCancellation === true
+  const noiseSuppression = s.noiseSuppression === true
+  const autoGainControl = s.autoGainControl === true
+
   return {
     echoCancellation,
     noiseSuppression,
     autoGainControl,
-    clean: !echoCancellation && !noiseSuppression && !autoGainControl,
+    // Only claim a clean stream when the browser actually confirmed one.
+    clean: reported && !echoCancellation && !noiseSuppression && !autoGainControl,
+    reported,
     label: track?.label || 'Microphone',
   }
 }
@@ -130,6 +148,27 @@ export async function measure(stream: MediaStream, opts: MeasureOptions = {}): P
   const gain = opts.gain ?? 0.6
 
   const ctx = new AudioContext()
+
+  // Everything from here on can throw, and an AudioContext that escapes without
+  // being closed stays alive with the microphone still connected to it. The UI
+  // offers "Try again", so each failure used to leak another one until the
+  // per-document cap made `new AudioContext()` itself throw and only a reload
+  // recovered. Whatever happens, the context is closed on the way out.
+  try {
+    return await record(ctx, stream, { leadIn, tail, duration, gain }, opts)
+  } finally {
+    if (ctx.state !== 'closed') await ctx.close().catch(() => {})
+  }
+}
+
+interface Geometry { leadIn: number; tail: number; duration: number; gain: number }
+
+async function record(
+  ctx: AudioContext,
+  stream: MediaStream,
+  { leadIn, tail, duration, gain }: Geometry,
+  opts: MeasureOptions,
+): Promise<Capture> {
   await ctx.resume()
 
   const workletUrl = URL.createObjectURL(new Blob([WORKLET_SOURCE], { type: 'application/javascript' }))
@@ -157,7 +196,24 @@ export async function measure(stream: MediaStream, opts: MeasureOptions = {}): P
   source.connect(recorder)
   recorder.connect(mute).connect(ctx.destination)
 
+  // If the input stalls — an interrupted context on mobile after a phone call,
+  // a device pulled mid-measurement — the worklet simply stops posting and
+  // nothing ever settles this promise. That left the page stuck on "Measuring"
+  // with its only button disabled, recoverable solely by reload. A silence this
+  // long is a failure whatever caused it.
+  const STALL_MS = 3000
+  let stallTimer = 0
+
   const done = new Promise<void>((resolve, reject) => {
+    const fail = (message: string) => reject(new Error(message))
+    const restartStallTimer = () => {
+      clearTimeout(stallTimer)
+      stallTimer = window.setTimeout(
+        () => fail('The microphone stopped sending audio. Check nothing else has taken it, then try again.'),
+        STALL_MS,
+      )
+    }
+
     recorder.port.onmessage = (e: MessageEvent<{ chunk: Float32Array; peak: number }>) => {
       const { chunk, peak } = e.data
       const room = Math.min(chunk.length, totalSamples - written)
@@ -167,7 +223,9 @@ export async function measure(stream: MediaStream, opts: MeasureOptions = {}): P
       }
       opts.onLevel?.(peak, written / sampleRate, totalSeconds)
       if (written >= totalSamples) resolve()
+      else restartStallTimer()
     }
+    restartStallTimer()
     opts.signal?.addEventListener('abort', () => reject(new DOMException('Cancelled', 'AbortError')), { once: true })
   })
 
@@ -190,13 +248,13 @@ export async function measure(stream: MediaStream, opts: MeasureOptions = {}): P
   try {
     await done
   } finally {
+    clearTimeout(stallTimer)
     phaseTimers.forEach(clearTimeout)
     recorder.port.onmessage = null
     try { player.stop() } catch { /* already finished */ }
     source.disconnect()
     recorder.disconnect()
     mute.disconnect()
-    await ctx.close()
   }
 
   return { recording, sampleRate, sweep, mic: readMicSettings(stream) }

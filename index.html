@@ -31,7 +31,7 @@
           <span class="ico" data-icon="microphone" aria-hidden="true"></span>
           <span id="measureLabel">Measure this room</span>
         </button>
-        <p class="launch__help" id="help">
+        <p class="launch__help" id="help" role="status">
           Take your headphones off, put the laptop where a pupil sits, and stay quiet
           for seven seconds. It plays a loud rising tone.
         </p>
@@ -50,8 +50,8 @@
     </div>
   </section>
 
-  <section class="results shell" id="results" hidden>
-    <div class="notice" id="notice" hidden>
+  <section class="results shell" id="results" hidden tabindex="-1" aria-label="Measurement results">
+    <div class="notice" id="notice" hidden role="status">
       <span class="ico" data-icon="warning" aria-hidden="true"></span>
       <span id="noticeText"></span>
     </div>
@@ -80,7 +80,7 @@
         </div>
         <div class="plot" style="aspect-ratio: 32 / 9">
           <canvas id="irCanvas" role="img" aria-label="Impulse response of the room. A table of the same measurement is below."></canvas>
-          <output class="plot__readout" id="irReadout"></output>
+          <output class="plot__readout" aria-live="off" id="irReadout"></output>
         </div>
       </div>
 
@@ -95,7 +95,7 @@
         </div>
         <div class="plot" style="aspect-ratio: 4 / 3">
           <canvas id="decayCanvas" role="img" aria-label="Energy decay curve in decibels against time, with the fitted slope used to extrapolate a 60 decibel decay."></canvas>
-          <output class="plot__readout" id="decayReadout"></output>
+          <output class="plot__readout" aria-live="off" id="decayReadout"></output>
         </div>
       </div>
 
@@ -106,7 +106,7 @@
         </div>
         <div class="plot" style="aspect-ratio: 4 / 3">
           <canvas id="bandCanvas" role="img" aria-label="Reverberation time in each octave band from 125 hertz to 4 kilohertz, against the schools limit."></canvas>
-          <output class="plot__readout" id="bandReadout"></output>
+          <output class="plot__readout" aria-live="off" id="bandReadout"></output>
         </div>
       </div>
     </div>

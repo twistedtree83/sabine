@@ -93,19 +93,25 @@ export function drawLevel(canvas: HTMLCanvasElement, history: number[], progress
   hairline(f, b.x, clipY, b.x + b.w, clipY, t.critical, [3, 3])
   label(f, 'clipping', b.x + b.w - 4, clipY - 8, t.critical, 'right')
 
-  const columns = Math.max(1, Math.round(b.w))
-  ctx.save()
-  ctx.fillStyle = t.accent
-  for (let c = 0; c < history.length && c < columns; c++) {
-    const v = Math.min(1, history[c])
-    const h = Math.max(1, v * b.h)
-    ctx.globalAlpha = v > 0.94 ? 1 : 0.85
-    ctx.fillStyle = v > 0.94 ? t.critical : t.accent
-    ctx.fillRect(b.x + c, b.y + b.h - h, 1, h)
-  }
-  ctx.restore()
-
+  // One bar per audio chunk, spread across the width the capture has used so
+  // far. Drawing them a pixel apart instead put the whole seven seconds of
+  // history -- about 83 chunks -- in the leftmost 83 pixels of a 650 pixel plot
+  // while the playhead swept the full width, so the trace people actually watch
+  // was a sliver against the axis with the cursor drifting away from it.
   const x = b.x + progress * b.w
+  if (history.length) {
+    const barW = Math.max(1, (progress * b.w) / history.length)
+    ctx.save()
+    for (let c = 0; c < history.length; c++) {
+      const v = Math.min(1, history[c])
+      const h = Math.max(1, v * b.h)
+      ctx.globalAlpha = v > 0.94 ? 1 : 0.85
+      ctx.fillStyle = v > 0.94 ? t.critical : t.accent
+      ctx.fillRect(b.x + (c / history.length) * progress * b.w, b.y + b.h - h, barW, h)
+    }
+    ctx.restore()
+  }
+
   hairline(f, x, b.y, x, b.y + b.h, t.inkMuted)
   label(f, phase, b.x + 4, b.y + 8, t.inkSecondary, 'left', 11)
 }

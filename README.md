@@ -65,17 +65,28 @@ allowed to say yes and do otherwise. If any survived, the measurement says so at
 
 ## Is it right?
 
-`npm test` measures rooms whose answers are known in advance.
+`npm test` measures rooms whose answers are known in advance. Every number quoted below is a
+threshold the suite actually enforces, not an observation someone made once - which is what
+they used to be.
 
-| Test | What it proves |
+| Test | What it enforces |
 |---|---|
-| `synthetic` | Five rooms from 0.28 s to 1.6 s, one at 28 dB SNR. All recovered within 3%. |
+| `synthetic` | Seven rooms from 0.28 s to 1.6 s. The five at 45-60 dB SNR recover within 3%; two harder ones at 24 and 28 dB within 5%. |
+| `clarity` | C50, C80 and D50 split at the right instant, against a flat impulse response whose answer is 0.00 dB by construction. |
+| `calculator` | The Sabine equation, each treatment's area derivation, and the BB93 thresholds, against arithmetic written out by hand. |
 | `bands` | A room ringing 1.5 s at 125 Hz and 0.5 s at 4 kHz. Every band within 3%. |
-| `imagesource` | A 9 x 7 x 2.9 m shoebox built by the image-source method. Measured RT60 1.11 s against Sabine's 1.12 s, and the floor, ceiling and side wall each located to within 3 cm. |
-| `skirts` | The octave filter is -3 dB at the band edges and -52 dB at the neighbouring band centre. |
-| `contrast` | Every colour pair in the interface, in both schemes, against WCAG AA. |
+| `imagesource` | A 9 x 7 x 2.9 m shoebox built by the image-source method. RT60 within 8% of Sabine, and floor, ceiling and side wall each located to within 3 cm - with the mean signed error asserted separately, because a bias is exactly what a per-arrival tolerance hides. |
+| `skirts` | The octave filter, at seven probe ratios across four bands: 0 dB at the centre, -3 at the edges, past -45 at the neighbouring centres, past -80 two octaves out. |
+| `contrast` | Every colour pair in the interface, in both schemes, against WCAG AA - and it fails on any `:root` block it does not know how to check. |
 
-That last one is why the band filter is an FFT-domain Butterworth mask and not a cascade of
+The synthetic rooms are built on the capture geometry the instrument actually records - a
+fixed lead-in, sweep and tail - rather than a recording allowed to grow with the room. That
+distinction is not academic: it was hiding an analysis window that ran off the end of its own
+data, and with it a 1.6 s room reported as 11.45 s, labelled T20 with an r-squared of 0.91
+and no warning shown. What the tests assert is therefore not only that the numbers are close,
+but that a number the pipeline marks *valid* can be trusted at all.
+
+`skirts` is why the band filter is an FFT-domain Butterworth mask and not a cascade of
 biquads. Three cascaded second-order sections put the octave edges in exactly the right place
 and then roll off so slowly that the neighbouring band is only 10 dB down, where IEC 61260
 class 1 asks for about 61. A room that rings longer at the bottom leaks into every band above
@@ -89,6 +100,11 @@ it, and mid-band errors reached 27% before the filter was replaced.
 - **One position.** ISO 3382 wants an average over several source and receiver positions. This
   is one. Move the laptop and measure again; two positions that disagree are telling you
   something about the room.
+
+- **The tail is the ceiling.** The impulse response can only be as long as the silence
+  recorded after the sweep, which is 2.5 seconds. A room ringing much longer than that has no
+  decay left to fit by the time the recording ends, and comes back unresolved rather than
+  guessed at. Church, gym and atrium are out of range on purpose.
 - **Later arrivals are not always one surface.** The first two are usually the floor and the
   ceiling. A double bounce off floor then ceiling in a 2.9 m room reads as 2.9 m, which is a
   real arrival but not a wall.
@@ -132,7 +148,7 @@ src/
   ui/
     canvas.ts         device-pixel sizing, live theme tokens, animation
     plots.ts          spectrogram, reflectogram, decay curve, octave bars
-test/                 the DSP validation above, and the contrast audit
+test/                 the validation above: DSP, clarity, calculator, palette
 ```
 
 ## Colour

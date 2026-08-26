@@ -115,10 +115,33 @@ function setHelp(text: string, tone: 'normal' | 'warn' = 'normal') {
   els.help.dataset.tone = tone === 'warn' ? 'warn' : ''
 }
 
+// A disabled element cannot hold focus, so disabling the button while it is
+// focused makes the browser drop focus to <body>. A keyboard user who pressed
+// Enter to measure would find their next Tab starting again from the skip link.
+// Remember that it happened, and give focus back when the button returns.
+let buttonHadFocus = false
+
 function setButton(label: string, icon: string, disabled: boolean) {
+  if (disabled && document.activeElement === els.measure) buttonHadFocus = true
   els.measureLabel.textContent = label
   setIcon(els.measureIcon, icon)
   els.measure.disabled = disabled
+  if (!disabled && buttonHadFocus) {
+    els.measure.focus()
+    buttonHadFocus = false
+  }
+}
+
+/**
+ * Let the microphone go. Nothing needs it between measurements — run()
+ * re-requests whenever the stream is missing or inactive, and permission is
+ * remembered — and holding it keeps the browser's recording indicator lit and
+ * the device open for the life of the tab, on a page that says nothing leaves
+ * this device.
+ */
+function releaseMicrophone() {
+  stream?.getTracks().forEach((t) => t.stop())
+  stream = null
 }
 
 /* --- measuring ----------------------------------------------------------- */
@@ -127,6 +150,16 @@ els.measure.addEventListener('click', () => void run())
 
 async function run() {
   if (state === 'measuring' || state === 'analysing') return
+
+  // Claim the state machine before the first await, not after it. The guard
+  // above used to sit on one side of `await requestMicrophone()` and the
+  // assignment on the other, so two clicks inside that window both passed:
+  // where permission is already remembered there is no prompt to swallow the
+  // second click, only the tens of milliseconds it takes to open the device.
+  // Both runs then opened their own AudioContext and played their own sweep
+  // into the same room, and each recording contained both.
+  state = 'measuring'
+  setButton('Measuring', 'microphone', true)
 
   try {
     if (!stream || !stream.active) stream = await requestMicrophone()
@@ -141,12 +174,11 @@ async function run() {
           : 'No microphone was available to this browser.',
       'warn',
     )
+    releaseMicrophone()
     setButton('Try again', 'redo', false)
     return
   }
 
-  state = 'measuring'
-  setButton('Measuring', 'microphone', true)
   setHelp('Stay quiet. The room is being played to and listened to at the same time.')
   els.figureTitle.textContent = 'Listening'
   els.figureSub.textContent = 'Live microphone level'
@@ -177,11 +209,16 @@ async function run() {
     })
   } catch (err) {
     state = 'error'
+    releaseMicrophone()
     setHelp(`The recording did not finish: ${err instanceof Error ? err.message : String(err)}`, 'warn')
     setButton('Try again', 'redo', false)
     resetStage()
     return
   }
+
+  // The recording is in hand; the device is not needed again until the next
+  // measurement asks for it.
+  releaseMicrophone()
 
   state = 'analysing'
   setHelp('Deconvolving. This takes a moment.')
@@ -199,10 +236,27 @@ async function run() {
   }
 
   state = 'done'
-  render(latest, capture)
+  showResults(latest, capture)
+}
+
+/**
+ * Everything that happens once a measurement exists. The dev hook below uses it
+ * too, so the completion path it exercises is the real one rather than a
+ * simplified copy that can drift away from it.
+ */
+function showResults(result: AnalysisResult, capture: Capture) {
+  render(result, capture)
   resetStage()
   setButton('Measure again', 'redo', false)
   setHelp('Move the laptop and measure again. Two positions that disagree are telling you about the room.')
+
+  // The results are unhidden rather than navigated to, so without this a screen
+  // reader is told nothing: not that a measurement exists, and not that a
+  // warning above it says the numbers cannot be trusted. Moving focus to the
+  // region says both, and puts the next Tab inside the results rather than back
+  // at the top of the document.
+  els.results.focus({ preventScroll: true })
+  buttonHadFocus = false
   els.results.scrollIntoView({ behavior: prefersReducedMotion() ? 'auto' : 'smooth', block: 'start' })
 }
 
@@ -240,16 +294,24 @@ function render(r: AnalysisResult, capture: Capture) {
   els.calc.hidden = false
 
   const warnings: string[] = []
-  if (!capture.mic.clean) {
-    const on = [
-      capture.mic.echoCancellation && 'echo cancellation',
-      capture.mic.noiseSuppression && 'noise suppression',
-      capture.mic.autoGainControl && 'automatic gain control',
-    ].filter(Boolean) as string[]
+  const on = [
+    capture.mic.echoCancellation && 'echo cancellation',
+    capture.mic.noiseSuppression && 'noise suppression',
+    capture.mic.autoGainControl && 'automatic gain control',
+  ].filter(Boolean) as string[]
+  if (on.length) {
     warnings.push(
       `This browser kept ${listOf(on)} switched on for the microphone despite being asked not to. ` +
         `Echo cancellation in particular removes the sound of your own speaker returning through the room, ` +
         `which is the entire signal. Treat these numbers as indicative.`,
+    )
+  } else if (!capture.mic.reported) {
+    // Not the same thing as the browser having honoured the request, and saying
+    // so would be inventing a fact the API never gave us.
+    warnings.push(
+      `This browser does not report whether it applied echo cancellation, noise suppression or automatic ` +
+        `gain control, so there is no way to confirm it left them off as asked. If the decay looks ` +
+        `impossibly short, that is the likeliest reason.`,
     )
   }
   if (r.tooQuiet) {
@@ -623,12 +685,11 @@ if (import.meta.env.DEV) {
       recording: rec,
       sampleRate: fs,
       sweep,
-      mic: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, clean: true, label: 'synthetic' },
+      mic: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, clean: true, reported: true, label: 'synthetic' },
     }
     latest = await analyseInWorker(capture)
     state = 'done'
-    render(latest, capture)
-    setButton('Measure again', 'redo', false)
+    showResults(latest, capture)
     ;(window as unknown as Record<string, unknown>).__result = latest
     return latest.broadband.rt60
   }

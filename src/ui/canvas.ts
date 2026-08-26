@@ -46,13 +46,22 @@ export function prepare(canvas: HTMLCanvasElement): Frame | null {
   const dpr = Math.min(window.devicePixelRatio || 1, 2)
   const w = Math.round(rect.width)
   const h = Math.round(rect.height)
-  if (canvas.width !== w * dpr || canvas.height !== h * dpr) {
-    canvas.width = w * dpr
-    canvas.height = h * dpr
+  // canvas.width is an integer, so on a fractional device pixel ratio -- 1.5 at
+  // 150% Windows scaling -- an odd CSS width makes `w * dpr` a value the
+  // backing store can never equal, and this guard is true forever. Every draw
+  // then reallocates and zeroes a multi-megabyte buffer instead of none of
+  // them, which on a pointermove-driven chart is every frame.
+  const bw = Math.round(w * dpr)
+  const bh = Math.round(h * dpr)
+  if (canvas.width !== bw || canvas.height !== bh) {
+    canvas.width = bw
+    canvas.height = bh
   }
   const ctx = canvas.getContext('2d')
   if (!ctx) return null
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+  // Scale by what the backing store actually is, not by what was asked for, so
+  // the rounding above cannot drift the drawing off the pixel grid.
+  ctx.setTransform(bw / w, 0, 0, bh / h, 0, 0)
   ctx.clearRect(0, 0, w, h)
   return { ctx, w, h, t: readTokens() }
 }
