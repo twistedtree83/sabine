@@ -1,0 +1,271 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Sabine — measure the reverberation time of a room</title>
+<meta name="description" content="Play a sweep, record the room answering back, and read its reverberation time, speech clarity and octave-band decay. Runs entirely in the browser." />
+<meta name="color-scheme" content="light dark" />
+<meta name="theme-color" content="#f5f6f7" media="(prefers-color-scheme: light)" />
+<meta name="theme-color" content="#111315" media="(prefers-color-scheme: dark)" />
+<link rel="icon" href="./icon.svg" type="image/svg+xml" />
+</head>
+<body>
+<a class="skip-link visually-hidden" href="#stage">Skip to the instrument</a>
+
+<header class="masthead shell">
+  <span class="masthead__mark">Sabine</span>
+  <p class="masthead__note">A room acoustics laboratory. Nothing leaves this device.</p>
+</header>
+
+<main>
+  <section class="stage shell" id="stage">
+    <div>
+      <h1 class="stage__title">How long your room holds a sound.</h1>
+      <p class="stage__lede">
+        Sabine plays a sweep, records the room answering back, and reads the
+        reverberation off the reply.
+      </p>
+      <div class="launch">
+        <button class="btn" id="measure" type="button">
+          <span class="ico" data-icon="microphone" aria-hidden="true"></span>
+          <span id="measureLabel">Measure this room</span>
+        </button>
+        <p class="launch__help" id="help">
+          Take your headphones off, put the laptop where a pupil sits, and stay quiet
+          for seven seconds. It plays a loud rising tone.
+        </p>
+      </div>
+    </div>
+
+    <div class="figure" id="stageFigure">
+      <div class="figure__head">
+        <h2 class="figure__title" id="figureTitle">The sweep</h2>
+        <p class="figure__sub" id="figureSub">45 Hz to 20 kHz in four seconds. A straight line here is equal time in every octave</p>
+      </div>
+      <div class="plot" style="aspect-ratio: 16 / 9">
+        <canvas id="stageCanvas" role="img"
+          aria-label="Spectrogram of the sweep the instrument plays: a straight diagonal ridge climbing from 45 hertz to 20 kilohertz over four seconds."></canvas>
+      </div>
+    </div>
+  </section>
+
+  <section class="results shell" id="results" hidden>
+    <div class="notice" id="notice" hidden>
+      <span class="ico" data-icon="warning" aria-hidden="true"></span>
+      <span id="noticeText"></span>
+    </div>
+
+    <div class="verdict">
+      <div>
+        <p class="hero-figure">
+          <span id="rtValue">&mdash;</span><span class="hero-figure__unit">s</span>
+        </p>
+        <p class="hero-figure__label" id="rtCaption">Reverberation time</p>
+      </div>
+      <div>
+        <p class="status" id="verdict" data-state="unknown">
+          <span class="ico" data-icon="info" aria-hidden="true"></span>
+          <span id="verdictText">Not measured yet</span>
+        </p>
+        <div class="metrics" id="metrics" style="margin-top: 1rem"></div>
+      </div>
+    </div>
+
+    <div class="plots">
+      <div class="figure figure--wide">
+        <div class="figure__head">
+          <h2 class="figure__title">The impulse response</h2>
+          <p class="figure__sub">What one instant of sound becomes by the time your room is finished with it. Decibels below the direct arrival</p>
+        </div>
+        <div class="plot" style="aspect-ratio: 32 / 9">
+          <canvas id="irCanvas" role="img" aria-label="Impulse response of the room. A table of the same measurement is below."></canvas>
+          <output class="plot__readout" id="irReadout"></output>
+        </div>
+      </div>
+
+      <div class="figure">
+        <div class="figure__head">
+          <h2 class="figure__title">Decay</h2>
+          <p class="figure__sub">Schroeder backward integration</p>
+          <p class="figure__key">
+            <span class="k-measured"><i></i>Measured</span>
+            <span class="k-fit"><i></i>Fitted slope</span>
+          </p>
+        </div>
+        <div class="plot" style="aspect-ratio: 4 / 3">
+          <canvas id="decayCanvas" role="img" aria-label="Energy decay curve in decibels against time, with the fitted slope used to extrapolate a 60 decibel decay."></canvas>
+          <output class="plot__readout" id="decayReadout"></output>
+        </div>
+      </div>
+
+      <div class="figure">
+        <div class="figure__head">
+          <h2 class="figure__title">By octave band</h2>
+          <p class="figure__sub">Where the ring actually lives</p>
+        </div>
+        <div class="plot" style="aspect-ratio: 4 / 3">
+          <canvas id="bandCanvas" role="img" aria-label="Reverberation time in each octave band from 125 hertz to 4 kilohertz, against the schools limit."></canvas>
+          <output class="plot__readout" id="bandReadout"></output>
+        </div>
+      </div>
+    </div>
+
+    <div class="figure" id="reflectionsFigure" hidden>
+      <div class="figure__head">
+        <h2 class="figure__title">What the sound hit</h2>
+        <p class="figure__sub">
+          Speaker and microphone sit centimetres apart, so an arrival <em>t</em> seconds
+          late has travelled <em>ct</em> further, and a surface that sent it back in one
+          bounce is half of that away
+        </p>
+      </div>
+      <div class="ruler" id="ruler"></div>
+      <div class="ruler__scale"><span class="num">0 m</span><span class="num" id="rulerEnd">10 m</span></div>
+      <p class="figure__foot">
+        The first two are usually the floor and the ceiling, which are the nearest
+        surfaces to a laptop on a desk. Later arrivals can be double bounces rather
+        than a single surface: floor then ceiling in a 2.9 m room reads as 2.9 m.
+      </p>
+    </div>
+
+    <details class="disclosure">
+      <summary>The same measurement as a table</summary>
+      <div class="table-wrap">
+        <table class="data">
+          <caption class="visually-hidden">Reverberation time and fit quality per octave band</caption>
+          <thead>
+            <tr>
+              <th scope="col">Octave band</th>
+              <th scope="col">RT60</th>
+              <th scope="col">Fit</th>
+              <th scope="col">r&sup2;</th>
+              <th scope="col">Decay headroom</th>
+            </tr>
+          </thead>
+          <tbody id="bandTable"></tbody>
+        </table>
+      </div>
+    </details>
+  </section>
+
+  <section class="panel shell" id="calc" hidden>
+    <h2 class="panel__title">What a roll of carpet would do</h2>
+    <p class="panel__lede">
+      Sabine's equation says reverberation time is volume divided by absorption. Because
+      the room has just been measured, its absorption is known rather than guessed, and
+      a treatment is only a change to it. Everything unknown about the room cancels out.
+    </p>
+
+    <div class="calc">
+      <div>
+        <div class="dims">
+          <div class="field">
+            <label for="dimL">Length</label>
+            <input id="dimL" type="number" inputmode="decimal" min="1" max="60" step="0.1" value="9" />
+            <span class="field__help">metres</span>
+          </div>
+          <div class="field">
+            <label for="dimW">Width</label>
+            <input id="dimW" type="number" inputmode="decimal" min="1" max="60" step="0.1" value="7" />
+            <span class="field__help">metres</span>
+          </div>
+          <div class="field">
+            <label for="dimH">Height</label>
+            <input id="dimH" type="number" inputmode="decimal" min="1.5" max="20" step="0.1" value="2.9" />
+            <span class="field__help">metres</span>
+          </div>
+        </div>
+        <div class="absorbers" id="absorbers"></div>
+      </div>
+
+      <div class="prediction">
+        <div class="prediction__row">
+          <p class="prediction__figure"><span id="predValue">&mdash;</span><span class="hero-figure__unit"> s</span></p>
+          <p class="prediction__delta" id="predDelta"></p>
+        </div>
+        <p class="status" id="predVerdict" data-state="unknown">
+          <span class="ico" data-icon="info" aria-hidden="true"></span>
+          <span id="predVerdictText">Nothing selected</span>
+        </p>
+        <div class="prediction__bar">
+          <div class="plot" style="aspect-ratio: 5 / 3">
+            <canvas id="predCanvas" role="img" aria-label="Predicted reverberation time per octave band after the selected treatments."></canvas>
+          </div>
+        </div>
+        <p class="prediction__note" id="predNote"></p>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel shell" id="method">
+    <h2 class="panel__title">How it works, and where it lies</h2>
+    <div class="prose">
+      <p>
+        The instrument plays an exponential sine sweep and records it back. Convolving the
+        recording with a time-reversed, energy-compensated copy of that sweep collapses it
+        into a single impulse: the room's impulse response, which is everything the room
+        does to any sound at all.
+      </p>
+      <p>
+        A sweep is used instead of a clap because a laptop speaker distorts, and the
+        harmonic distortion products of a sweep collapse to a point <em>before</em> the
+        linear impulse. They land in negative time and get thrown away. A clap has no such
+        courtesy, and a clap is also never the same twice.
+      </p>
+      <h3>Nothing here needs to know the latency</h3>
+      <p>
+        Browsers will not tell you honestly how long the audio output and input pipelines
+        delay things by. They do not have to. The recording contains the direct sound as
+        well as the reflections, so the impulse response carries its own zero in the direct
+        arrival, and everything is measured relative to that.
+      </p>
+      <h3>The three ways this can be wrong</h3>
+      <p>
+        <strong>Your speaker.</strong> A laptop cannot move much air below about 150 Hz, so
+        the 125 Hz band is measured with far less signal than the rest. It is drawn faded
+        when the decay had too little headroom over the noise to trust, and the table gives
+        the headroom in decibels for every band.
+      </p>
+      <p>
+        <strong>Your browser.</strong> Microphone streams get echo cancellation, noise
+        suppression and automatic gain control by default. All three are asked for off, and
+        the answer is checked, because a browser is allowed to say yes and do otherwise. If
+        any of them survived, the measurement says so at the top.
+      </p>
+      <p>
+        <strong>One position.</strong> ISO 3382 wants an average over several source and
+        receiver positions. This is one, and one position sits in one part of the room's
+        modal field. Move the laptop and measure again; if the two disagree by much, the
+        room is telling you something about itself.
+      </p>
+      <h3>Why any of this matters</h3>
+      <p>
+        In a reverberant classroom every word overlaps the word before it. Building Bulletin
+        93 sets 0.8 seconds as the limit for a new general teaching space in England and
+        Wales, and 0.6 for rooms designed for pupils with hearing impairment or other special
+        educational needs. Rooms built before it, which is most of them, were never measured
+        at all. The children at the back have known for years.
+      </p>
+      <h3>The name</h3>
+      <p>
+        Wallace Clement Sabine was a young physics lecturer at Harvard in 1895 when he was
+        handed the Fogg lecture hall, a room in which nobody could understand a lecture. He
+        worked at night with an organ pipe and a stopwatch, carrying seat cushions in from
+        the Sanders Theatre and out again, until he had the relationship that still carries
+        his name: reverberation time is volume divided by absorption. He had invented
+        architectural acoustics by measuring soft furnishings in the dark.
+      </p>
+    </div>
+  </section>
+</main>
+
+<footer class="colophon shell">
+  <span>Sabine</span>
+  <span>Every measurement runs on this device. No audio is uploaded.</span>
+  <span>Method after ISO 3382-1 and Farina, AES 108.</span>
+</footer>
+
+<script type="module" src="/src/main.ts"></script>
+</body>
+</html>
