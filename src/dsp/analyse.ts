@@ -55,7 +55,22 @@ export function analyse(req: AnalysisRequest): AnalysisResult {
   // Keep a couple of milliseconds ahead of the peak so the impulse's own
   // leading edge is not clipped off.
   const start = Math.max(0, direct - Math.round(sampleRate * 0.002))
-  const ir = full.slice(start, Math.min(full.length, start + Math.round(sampleRate * 4)))
+
+  // The impulse response can only be as long as the silence recorded after the
+  // sweep. `full` runs on well past that, but every sample beyond it comes from
+  // a filter that only partly overlaps real signal, so it ramps down whatever
+  // the room did — highest frequencies first, since those sit at the head of
+  // the inverse filter. Lundeby seeds its noise floor from the last tenth of
+  // whatever it is handed; pointed at that region it measures the filter
+  // running out rather than the room, comes back tens of dB too low, never
+  // truncates, and reports the resulting nonsense as a valid fit. A 1.6 s room
+  // at 24 dB SNR read 11.45 s this way, labelled T20 with r2 = 0.91.
+  //
+  // So the window ends where the recording does, and a room that rings longer
+  // than the tail is honestly out of range rather than quietly wrong.
+  const maxWindow = Math.round(sampleRate * 4)
+  const end = Math.max(start + 1, Math.min(recording.length - 1, start + maxWindow))
+  const ir = full.slice(start, Math.min(end, full.length))
 
   const decay = schroeder(ir, sampleRate)
   const best = bestFit(decay)

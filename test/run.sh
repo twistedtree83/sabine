@@ -7,7 +7,7 @@ cd "$(dirname "$0")/.."
 # Instant, and it fails on a token that moved, so run it before the slow part.
 node test/contrast.mjs
 for t in synthetic bands imagesource skirts; do
-  npx esbuild "test/$t.ts" --bundle --platform=node --format=esm --outfile="test/.$t.mjs" --log-level=error
+  ./node_modules/.bin/esbuild "test/$t.ts" --bundle --platform=node --format=esm --outfile="test/.$t.mjs" --log-level=error
   node "test/.$t.mjs"
   rm -f "test/.$t.mjs"
 done
