@@ -11,51 +11,20 @@ import { makeSweep } from '../src/dsp/sweep.ts'
 import { convolve } from '../src/dsp/fft.ts'
 import { analyse } from '../src/dsp/analyse.ts'
 import { OCTAVE_CENTRES } from '../src/dsp/bands.ts'
+import { makeRandom, assertNotPeriodic } from './prng.ts'
 
 const fs = 48000
+const SEED = 12345
 // Tolerance is per-case rather than global: it is part of what each row
 // promises, and a single loose number that lets the hardest case through is a
 // single loose number that also lets a regression through on the easiest.
 const BAND_TOLERANCE = 15
 
-/**
- * A deterministic PRNG so a failure is reproducible.
- *
- * mulberry32, which stays inside exact 32-bit integer arithmetic via imul. The
- * LCG this replaces multiplied a 31-bit seed by 1103515245, landing around 2^61
- * — past the 53 bits a double carries exactly — so its low bits were rounding
- * error rather than state, and the sequence looped every 10,466 samples. At
- * 48 kHz that is a 218 ms period: the "microphone noise" was a repeating tone
- * partly coherent with the sweep, which is the one thing a noise-floor
- * estimator finds easy. The estimator is the whole point of these tests.
- */
-let seed = 12345 >>> 0
-const rand = () => {
-  seed = (seed + 0x6d2b79f5) >>> 0
-  let t = seed
-  t = Math.imul(t ^ (t >>> 15), t | 1)
-  t ^= t + Math.imul(t ^ (t >>> 7), t | 61)
-  return ((t ^ (t >>> 14)) >>> 0) / 4294967296
-}
+const rand = makeRandom(SEED)
 const noise = () => rand() * 2 - 1
 
-// The generator has to outlast the longest recording, or the noise is periodic
-// and the tests are easier than the room. Checked rather than assumed, because
-// the failure it guards against is silent.
-{
-  const probe = seed
-  const seen = new Map<number, number>()
-  let period = 0
-  for (let i = 0; i < 400_000 && !period; i++) {
-    if (seen.has(seed)) period = i - (seen.get(seed) as number)
-    else { seen.set(seed, i); rand() }
-  }
-  if (period) {
-    console.log(`PRNG repeats after ${period} samples (${((period / fs) * 1000).toFixed(0)} ms) - noise is not broadband`)
-    process.exit(1)
-  }
-  seed = probe
-}
+// The recording is 7 s; the generator has to outlast it comfortably.
+assertNotPeriodic(SEED, 8 * fs, fs)
 
 function syntheticRoom(rt60: number, lengthSec: number, directGain = 1): Float32Array {
   const n = Math.round(lengthSec * fs)

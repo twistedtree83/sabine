@@ -27,6 +27,31 @@ left is the part that needs hardware and a real room.
 
 ## Closed since the last status
 
+A multi-agent review raised 34 findings; 11 were refuted under adversarial
+verification and the surviving 23 are all closed. The two that mattered were
+one defect seen from both ends: a fixed 4-second analysis window that ran off
+the end of the recording, and a Lundeby noise floor seeded from inside the
+region where it had. A 1.6 s room at 24 dB SNR read 11.45 s, labelled T20 with
+r2 = 0.91 and no warning shown. Both close by deriving the window from the
+recording length instead of a constant.
+
+The rest of the review's value was in the test suite, which passed throughout
+while proving much less than the README claimed:
+
+- `skirts.ts` asserted nothing and always exited 0
+- `bands.ts` filtered its own room with the function it was measuring
+- `synthetic.ts` used a capture geometry the instrument never records, and a
+  PRNG that looped every 218 ms
+- `imagesource.ts` accepted reflections within 0.25 m against a stated 3 cm
+- the calculator the project is named after had no test at all
+- `npx esbuild` was fetched from the network on every run
+
+All fixed, and the README now quotes thresholds the suite enforces. Three of
+the fixes were verified by mutation - dropping the filter order to 3, flipping
+the sign on `replaces`, putting the Sabine constant 2% out - because a test
+that cannot fail is not worth having.
+
+
 - **The six WCAG contrast failures.** The single amber is now three tokens —
   `--accent` for marks and the button, `--accent-ink` for the label on it,
   `--accent-text` for amber at body size — because one colour cannot clear both

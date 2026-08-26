@@ -12,11 +12,11 @@
 import { makeSweep } from '../src/dsp/sweep.ts'
 import { convolve } from '../src/dsp/fft.ts'
 import { analyse } from '../src/dsp/analyse.ts'
+import { makeNoise } from './prng.ts'
 import { SPEED_OF_SOUND, earlyReflections, findDirectSound } from '../src/dsp/acoustics.ts'
 
 const fs = 48000
-let seed = 20250825
-const rnd = () => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed / 0x7fffffff * 2 - 1 }
+const rnd = makeNoise(20250825)
 
 const L = [9, 7, 2.9]            // room, metres
 const P = [4.5, 3.5, 1.15]       // laptop position
@@ -61,8 +61,19 @@ function imageSourceRoom(seconds: number) {
     }
   }
 
-  // The lattice thins out faster than a real room's scattering does, so top
-  // the late field up with diffuse noise on the same decay slope.
+  // The lattice thins out faster than a real room's scattering does, so top the
+  // late field up with diffuse noise on the same decay slope.
+  //
+  // Be clear about what this costs: from 50 ms on, the decay is painted at the
+  // Sabine slope rather than emerging from the physics. The RT60 comparison
+  // below is therefore a consistency check on the pipeline - it would still
+  // catch a gross break - and not independent evidence that the instrument
+  // measures reverberation correctly. test/synthetic.ts is where that is
+  // established, from the definition of RT60 rather than from this code.
+  //
+  // What this test *does* establish independently is the geometry: the arrival
+  // times below come from the image-source lattice, which is real physics with
+  // no input from the code being tested.
   const rtSabine = (0.161 * (L[0] * L[1] * L[2])) / (2 * (L[0] * L[1] + L[0] * L[2] + L[1] * L[2]) * ALPHA)
   const lateStart = Math.round(0.05 * fs)
   const decay = Math.log(1000) / rtSabine
@@ -126,6 +137,8 @@ const rtErr = Math.abs(r.broadband.rt60 - rtSabine) / rtSabine * 100
 
 console.log(`\n${matched.length} of ${r.reflections.length} reported arrivals sit on a first-order surface`)
 console.log(`RT60 measured ${r.broadband.rt60.toFixed(2)} s against Sabine's ${rtSabine.toFixed(2)} s  (${rtErr.toFixed(1)}%)`)
+console.log('  (a consistency check - this room\'s late decay is painted at the Sabine slope,')
+console.log('   so it is synthetic.ts that establishes RT60 accuracy, not this test)')
 console.log('Arrivals that match no single surface are usually real double bounces:')
 console.log('  a floor-then-ceiling path in this room is 2 x 2.9 = 5.8 m, which reads as 2.90 m.')
 

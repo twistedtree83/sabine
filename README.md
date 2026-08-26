@@ -74,13 +74,17 @@ they used to be.
 | `synthetic` | Seven rooms from 0.28 s to 1.6 s. The five at 45-60 dB SNR recover within 3%; two harder ones at 24 and 28 dB within 5%. |
 | `clarity` | C50, C80 and D50 split at the right instant, against a flat impulse response whose answer is 0.00 dB by construction. |
 | `calculator` | The Sabine equation, each treatment's area derivation, and the BB93 thresholds, against arithmetic written out by hand. |
-| `bands` | A room ringing 1.5 s at 125 Hz and 0.5 s at 4 kHz. Every band within 3%. |
-| `imagesource` | A 9 x 7 x 2.9 m shoebox built by the image-source method. RT60 within 8% of Sabine, and floor, ceiling and side wall each located to within 3 cm - with the mean signed error asserted separately, because a bias is exactly what a per-arrival tolerance hides. |
+| `bands` | A room ringing 1.5 s at 125 Hz and 0.5 s at 4 kHz, excited by sinusoids rather than by the filter under test. Every band within 8%, and the measured curve has to fall monotonically across the six with the bottom-to-top spread intact. |
+| `imagesource` | A 9 x 7 x 2.9 m shoebox built by the image-source method: floor, ceiling and side wall each located to within 3 cm, with the mean signed error asserted separately, because a bias is exactly what a per-arrival tolerance hides. Its RT60 check is a consistency check rather than independent evidence - the late decay is painted at the Sabine slope, so it is `synthetic` that establishes reverberation accuracy. |
 | `skirts` | The octave filter, at seven probe ratios across four bands: 0 dB at the centre, -3 at the edges, past -45 at the neighbouring centres, past -80 two octaves out. |
 | `contrast` | Every colour pair in the interface, in both schemes, against WCAG AA - and it fails on any `:root` block it does not know how to check. |
 
-The synthetic rooms are built on the capture geometry the instrument actually records - a
-fixed lead-in, sweep and tail - rather than a recording allowed to grow with the room. That
+Two habits run through all of these, both learned the hard way. A test must not build its
+subject with the code it is about to measure - `bands` filtered its own room with the very
+function under test, so the band centres agreed by construction and a filter tuned to the
+wrong frequency would have passed. And the synthetic rooms are built on the capture geometry
+the instrument actually records - a fixed lead-in, sweep and tail - rather than a recording
+allowed to grow with the room. That
 distinction is not academic: it was hiding an analysis window that ran off the end of its own
 data, and with it a 1.6 s room reported as 11.45 s, labelled T20 with an r-squared of 0.91
 and no warning shown. What the tests assert is therefore not only that the numbers are close,
@@ -148,7 +152,7 @@ src/
   ui/
     canvas.ts         device-pixel sizing, live theme tokens, animation
     plots.ts          spectrogram, reflectogram, decay curve, octave bars
-test/                 the validation above: DSP, clarity, calculator, palette
+test/                 the validation above; prng.ts is shared by all of them
 ```
 
 ## Colour
