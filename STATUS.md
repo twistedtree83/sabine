@@ -20,8 +20,10 @@ left is the part that needs hardware and a real room.
   from production by `import.meta.env.DEV`), in both colour schemes, with the
   canvases redrawn after the scheme change rather than left stale.
 - Production build 30 kB JS (11.7 kB gzipped), typecheck clean.
-- **Deploy set up.** `.github/workflows/deploy.yml` builds on a push to `main`.
-  Typecheck and `npm test` gate it.
+- **Deployed.** `twistedtree83/sabine`, live at
+  <https://twistedtree83.github.io/sabine/>. A push to `main` runs typecheck,
+  `npm test` and the build before Pages sees anything, so a room that measures
+  wrong or a token that fails contrast cannot reach the live site.
 
 ## Closed since the last status
 
@@ -60,5 +62,6 @@ left is the part that needs hardware and a real room.
   synthetic. The `getUserMedia` constraint path, the AudioWorklet capture and the
   browser-DSP warning have not been exercised on real hardware. This is the
   biggest open risk and the next thing worth doing.
-- **Not pushed anywhere.** The workflow exists; no remote, and Pages is not
-  switched on for a repo yet.
+- **No second position.** ISO 3382 wants an average over several source and
+  receiver placements; the instrument measures one. Two positions that disagree
+  would be worth surfacing rather than hiding.
